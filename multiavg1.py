@@ -7,9 +7,9 @@ import datetime
 import numpy as np
 from scipy.spatial import Delaunay
 
-# Folder definitions (adjust paths if necessary)
-predictor_model = "/Users/liumichelle/capstone/shape_predictor_68_face_landmarks.dat"
+# Folder definitions (adjust paths as necessary)
 base_dir = "/Users/liumichelle/capstone"
+predictor_model = os.path.join(base_dir, "shape_predictor_68_face_landmarks.dat")
 pics_folder = os.path.join(base_dir, "pics")
 avgs_folder = os.path.join(base_dir, "avgs")
 grids_folder = os.path.join(base_dir, "grids")
@@ -63,15 +63,15 @@ def get_latest_file(folder, pattern):
 def average_last_and_new(pics_folder, avgs_folder):
     """
     Averages the new capture (the most recent file in pics) with the most recent merged image
-    (if it exists) using weights 80% for previous merged image and 20% for new capture.
+    (if it exists) using weights: previous merged image 80% and new capture 20%.
     Saves the new merged image to avgs and returns it.
     """
     new_capture_path = get_latest_file(pics_folder, '*.[jp][pn]g')
     if not new_capture_path:
-        raise ValueError("No captured images found in folder: {}".format(pics_folder))
+        raise ValueError("No captured images found in folder: " + pics_folder)
     new_img = cv2.imread(new_capture_path)
     if new_img is None:
-        raise FileNotFoundError("Could not load new capture image: {}".format(new_capture_path))
+        raise FileNotFoundError("Could not load new capture image: " + new_capture_path)
     
     latest_merged_path = get_latest_file(avgs_folder, 'merged_face_*.jpg')
     if latest_merged_path:
@@ -82,11 +82,12 @@ def average_last_and_new(pics_folder, avgs_folder):
             weights = [1.0]
         else:
             images = [prev_img, new_img]
-            weights = [0.8, 0.2]
+            weights = [0.9, 0.1]
     else:
         images = [new_img]
         weights = [1.0]
     
+    # Resize all images to match the first image.
     h, w = images[0].shape[:2]
     images = [cv2.resize(img, (w, h)) for img in images]
     
@@ -142,7 +143,8 @@ def load_all_captured_images(folder):
 def create_grid_image(all_images, thumb_height=150):
     """
     Creates a grid image from all_images, preserving each image's aspect ratio.
-    Each image is resized to a fixed height (thumb_height), and rows are padded to the maximum width.
+    Each image is resized to a fixed height (thumb_height) and rows are padded
+    to the maximum row width.
     """
     n = len(all_images)
     if n == 0:
@@ -175,25 +177,40 @@ def create_grid_image(all_images, thumb_height=150):
             row_img[0:h_t, x_offset:x_offset + w_t] = t
             x_offset += w_t
         row_images.append(row_img)
-    if not row_images:
-        return None
     grid_img = cv2.vconcat(row_images)
     return grid_img
 
+def fit_to_canvas(img, canvas_width=1280, canvas_height=720):
+    """
+    Resizes img to fit within a canvas of canvas_width x canvas_height
+    while preserving its aspect ratio, and centers it on a blank (white) canvas.
+    """
+    h, w = img.shape[:2]
+    scale = min(canvas_width / w, canvas_height / h)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = 255 * np.ones((canvas_height, canvas_width, 3), dtype=np.uint8)
+    x_offset = (canvas_width - new_w) // 2
+    y_offset = (canvas_height - new_h) // 2
+    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+    return canvas
+
 def create_grid_file(all_captured_images, grids_folder):
-    """Creates and saves a grid image of all captured images into the grids folder."""
+    """Creates and saves a grid image of all captured images into the grids folder,
+       then fits it to a 1280x720 canvas without warping the images."""
     grid_img = create_grid_image(all_captured_images, thumb_height=150)
     if grid_img is None:
         print("No images to create a grid.")
         return
+    final_grid = fit_to_canvas(grid_img, canvas_width=1280, canvas_height=720)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     grid_filename = f"grid_{timestamp}.jpg"
     grid_output_path = os.path.join(grids_folder, grid_filename)
-    cv2.imwrite(grid_output_path, grid_img)
+    cv2.imwrite(grid_output_path, final_grid)
     print(f"Grid image saved as: {grid_output_path}")
 
 def main():
-    # In this version, we do not capture a new image; we simply process the most recent image in "pics".
     try:
         merged_face = average_last_and_new(pics_folder, avgs_folder)
     except Exception as e:
@@ -203,5 +220,5 @@ def main():
     create_grid_file(all_captured, grids_folder)
     print("Done. Pictures are in 'pics', the averaged face is in 'avgs', and the grid is in 'grids'.")
 
-if __name__ == '__main__':
-    main()
+# If running as a standalone script in TouchDesigner, call main().
+main()

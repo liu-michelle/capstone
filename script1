@@ -1,0 +1,79 @@
+﻿import cv2
+import dlib
+import numpy as np
+
+# Initialize the dlib face detector once.
+detector = dlib.get_frontal_face_detector()
+
+def onCook(scriptOp):
+    # Clear any previously created channels.
+    scriptOp.clear()
+    
+    # Directly reference the TOP named "flip1".
+    inputTOP = op("flip1")
+    if inputTOP is None:
+        return
+    
+    # Retrieve the image array from flip1.
+    arr = inputTOP.numpyArray(delayed=True)
+    if arr is None:
+        return
+    
+    # Convert the image from RGBA to grayscale.
+    try:
+        gray = cv2.cvtColor(arr, cv2.COLOR_RGBA2GRAY)
+    except Exception as e:
+        # In case the input isn't in the expected format, abort.
+        return
+    
+    # Ensure the grayscale image is in 0-255 range.
+    if gray.dtype != np.uint8:
+        gray = (gray * 255).astype(np.uint8)
+    
+    # Get image dimensions.
+    h, w = gray.shape[:2]
+    
+    # Detect faces in the grayscale image.
+    rects = detector(gray, 0)
+    
+    # If no faces are detected, do nothing.
+    if len(rects) == 0:
+        return
+    
+    # Choose the largest detected face (by area).
+    bestRect = None
+    bestArea = 0
+    for rect in rects:
+        area = (rect.right() - rect.left()) * (rect.bottom() - rect.top())
+        if area > bestArea:
+            bestArea = area
+            bestRect = rect
+            
+    if bestRect is not None:
+        # Normalize coordinates to 0-1.
+        left   = bestRect.left() / float(w)
+        top    = bestRect.top() / float(h)
+        right  = bestRect.right() / float(w)
+        bottom = bestRect.bottom() / float(h)
+        
+        # Calculate center and size.
+        cx = (left + right) / 2.0
+        cy = (top + bottom) / 2.0
+        cw = right - left
+        ch = bottom - top
+        
+        # Create CHOP channels to output these values.
+        chan_cx = scriptOp.appendChan('cx')
+        chan_cy = scriptOp.appendChan('cy')
+        chan_width = scriptOp.appendChan('width')
+        chan_height = scriptOp.appendChan('height')
+        
+        chan_cx.vals = [cx]
+        # Flip the Y coordinate to match TouchDesigner’s coordinate system.
+        chan_cy.vals = [1 - cy]
+        chan_width.vals = [cw]
+        chan_height.vals = [ch]
+    
+    # Set the cook rate.
+    scriptOp.rate = me.time.rate
+    return
